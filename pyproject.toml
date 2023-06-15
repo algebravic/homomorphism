@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "homomorphism"
+version = "0.2.0"
+description = "Routines for finding labeled graph homomorphisms"
+authors = ["Victor S. Miller <victorsmiller@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+python-sat = "^0.1.7-alpha.2"
+argparse = "^1.4.0"
+networkx = "^2.5.1"
+numpy = "^1.20.2"
+z3-solver = "^4.8.10"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
+
