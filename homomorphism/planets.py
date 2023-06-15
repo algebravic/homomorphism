@@ -1,9 +1,9 @@
-import networkx as nx
-from .sat_homomorphism import LabeledHomomorphism
-import numpy as np
-from itertools import product, combinations
 from collections import Counter
+from itertools import product, combinations
+import networkx as nx
+import numpy as np
 from pysat.card import EncType
+from .sat_homomorphism import LabeledHomomorphism
 # from .utility import export
 
 PLANETS = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto']
@@ -18,7 +18,7 @@ def word_graph(word: str) -> nx.Graph:
     word: a string
     """
     if not isinstance(word, str):
-        raise ValueError("input {} must be a string".format(word))
+        raise ValueError(f"input {word} must be a string")
 
     gph = nx.Graph()
     for ind, val in enumerate(word):
@@ -27,15 +27,26 @@ def word_graph(word: str) -> nx.Graph:
         gph.add_edge(ind, ind + 1)
     return gph
 
+def big_union(lst: List[nx.Graph]) -> nx.Graph:
+    """
+    Disjoint union of a list of graphs
+    """
+    if len(lst) > 1:
+        half = len(lst) // 2
+        left = big_union(lst[: half])
+        right = big_union(lst[half: ])
+        return nx.disjoint_union(left, right)
+    elif len(lst) == 1:
+        return lst[0]
+    else:
+        raise ValueError("Input is empty!")
+
 # @export
 def words(lst):
+    """ The Graph induced by the word list """
     if not isinstance(lst, (tuple, list, set, frozenset)):
         raise ValueError("Input must be a collection of strings")
-    graphs = list(map(word_graph, lst))
-    out = graphs[0]
-    for gph in graphs[1: ]:
-        out = nx.disjoint_union(out, gph)
-    return out
+    return big_union(list(map(word_graph, lst)))
 
 # @export
 def grid_graph(mval, nval):
@@ -54,12 +65,9 @@ def grid_graph(mval, nval):
 
 # @export
 def problem(mval, nval, wordlist=PLANETS):
-
-    if not (all(isinstance(_, INTS) and _ > 0 for _ in [mval, nval])):
-        raise ValueError("Inputs {} ({}), {}({}) must be positive integers".format(
-            mval, type(mval), nval, type(nval)))
+    """ Produce the class instance for the problem """
+    if not all(isinstance(_, INTS) and _ > 0 for _ in [mval, nval]):
+        raise ValueError(f"Inputs {mval} ({type(mval)}), {nval}({type(nval)})"
+                         + " must be positive integers")
 
     return LabeledHomomorphism(words(wordlist), grid_graph(mval, nval))
-
-
-
