@@ -42,7 +42,7 @@ attribute to store old label. If None no attribute is created.
 from itertools import combinations
 from networkx.relabel import convert_node_labels_to_integers
 from z3 import (ForAll, Implies, IntSort, TupleSort, EmptySet, IsMember, SetAdd,
-                Function, Array, ArraySort, Store, String, Solver, Const, And, StringSort)
+                Function, Array, ArraySort, Store, String, Solver, Const, And, StringSort, Var)
 
 pair, mk_pair, (first, second) = TupleSort('pair', [IntSort(), IntSort()])
 
@@ -81,7 +81,7 @@ class GraphZ3:
         # If s is a set and a is an element, IsMember(a, s) is true if a in s
         # ForAll (e in E): (first(e) in V) AND (second(e) in V)
 
-        evar = Const('e', pair)
+        evar = Const(f'e_{self._gph.name}', pair)
         self._cond = ForAll(evar, Implies(IsMember(evar, self._edges), And(
             IsMember(first(evar), self._vertices),
             IsMember(second(evar), self._vertices)
@@ -131,37 +131,37 @@ def labeled_homomorphism(gpha, gphb, expand=False, colored=False):
     # gpha must have a label
     if zgpha.labels is None:
         raise ValueError("gpha must have a label attribute")
-    evar = Const('e', pair)
-    vvar = Const('v', IntSort())
-    fun = Function('f', IntSort(), IntSort())
+    evar = Const(f'e_{zgpha._gph.name}', pair)
+    vvar = Const(f'v_{zgpha._gph.name}', IntSort())
+    fun = Function(f'f_{zgpha._gph.name}_{zgphb._gph.name}', IntSort(), IntSort())
 
     if expand:
-        hom_cond = []
-        for node in zgpha._gph.nodes:
-            hom_cond.append(IsMember(fun(node), zgphb.vertices))
-        for nodea, nodeb in zgpha._gph.edges:
-            hom_cond.append(IsMember(mk_pair(fun(nodea), fun(nodeb)), zgphb.edges))
+        hom_cond = ([IsMember(fun(node), zgphb.vertices) for node in zgpha._gph.nodes]
+            + [IsMember(mk_pair(fun(nodea), fun(nodeb)), zgphb.edges)
+               for nodea, nodeb in zgpha._gph.edges])
     else:
-        hom_cond = [ForAll(evar, Implies(IsMember(evar, zgpha.edges),
-                                         IsMember(mk_pair(fun(first(evar)), fun(second(evar))), zgphb.edges)))]
+        hom_cond = [ForAll([evar], Implies(IsMember(evar, zgpha.edges),
+                                         IsMember(
+                                             mk_pair(fun(first(evar)),
+                                                     fun(second(evar))),
+                                             zgphb.edges)))]
 
     if colored:
-        gfun = Function('g', IntSort(), StringSort())
+        gfun = Function(f'g_zgphb._gph.name', IntSort(), StringSort())
         if expand:
-            label_cond = []
-            for vnode in zgpha._gph.nodes:
-                label_cond.append(gfun(fun(vnode)) == String(zgpha._gph.nodes[vnode]['label']))
+            label_cond = [gfun(fun(vnode)) == String(zgpha._gph.nodes[vnode]['label'])
+                for vnode in zgpha._gph.nodes]
         else:
-            label_cond = [ForAll(vvar, gfun(fun(vvar)) == zgpha.labels[vvar])]
+            label_cond = [ForAll([vvar], gfun(fun(vvar)) == zgpha.labels[vvar])]
     else:
         if expand:
-            label_cond = []
-            for vnode, vnodep in combinations(zgpha._gph.nodes, 2):
-                if zgpha._gph.nodes[vnode]['label'] != zgpha._gph.nodes[vnodep]['label']:
-                    label_cond.append(fun(vnode) != fun(vnodep))
+            label_cond = [fun(vnode) != fun(vnodep)
+                for vnode, vnodep in combinations(zgpha._gph.nodes, 2)
+                if zgpha._gph.nodes[vnode]['label'] != 
+                zgpha._gph.nodes[vnodep]['label']]
         else:
-            vvarp = Const('vp', IntSort())
-            label_cond = [ForAll(vvar, Implies(
+            vvarp = Const(f'vp_{zgpha._gph.name}', IntSort())
+            label_cond = [ForAll([vvar, vvarp], Implies(
                 And(IsMember(vvar, zgpha.vertices),
                     IsMember(vvarp, zgpha.vertices),
                     zgpha.labels[vvar] != zgpha.labels[vvarp]),
