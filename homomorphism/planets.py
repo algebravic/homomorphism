@@ -1,3 +1,4 @@
+from typing import List
 from collections import Counter
 from itertools import product, combinations
 import networkx as nx
@@ -6,10 +7,12 @@ from pysat.card import EncType
 from .sat_homomorphism import LabeledHomomorphism
 # from .utility import export
 
-PLANETS = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto']
-MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
-
-LISTS = dict(planets=PLANETS, months=MONTHS)
+LISTS = {'planets': ['mercury', 'venus', 'earth', 'mars', 'jupiter',
+                     'saturn', 'uranus', 'neptune', 'pluto'],
+         'months': ['january', 'february', 'march', 'april',
+                    'may', 'june', 'july', 'august', 'september',
+                    'october', 'november', 'december']
+         }
 
 INTS = (int, np.int8, np.int16, np.int32, np.int64)
 
@@ -27,7 +30,7 @@ def word_graph(word: str) -> nx.Graph:
         gph.add_edge(ind, ind + 1)
     return gph
 
-def big_union(lst: List[nx.Graph]) -> nx.Graph:
+def big_union(lst : List[nx.Graph]) -> nx.Graph:
     """
     Disjoint union of a list of graphs
     """
@@ -42,19 +45,25 @@ def big_union(lst: List[nx.Graph]) -> nx.Graph:
         raise ValueError("Input is empty!")
 
 # @export
-def words(lst):
+def words(ident: str) -> nx.Graph:
     """ The Graph induced by the word list """
+    if ident not in LISTS:
+        raise ValueError(f"Input not in {tuple(LISTS.keys())}")
+    else:
+        lst = LISTS[ident]
     if not isinstance(lst, (tuple, list, set, frozenset)):
         raise ValueError("Input must be a collection of strings")
-    return big_union(list(map(word_graph, lst)))
+    res = big_union(list(map(word_graph, lst)))
+    res.name = ident
+    return res
 
 # @export
-def grid_graph(mval, nval):
+def grid_graph(mval, nval) -> nx.Graph:
     """
     Generate a grid graph of M x N.
     """
 
-    gph = nx.Graph()
+    gph = nx.Graph(name=f'grid_{mval}_{nval}')
 
     for xval, yval in product(range(mval), range(nval)):
         if xval + 1 < mval:
@@ -64,7 +73,7 @@ def grid_graph(mval, nval):
     return gph
 
 # @export
-def problem(mval, nval, wordlist=PLANETS):
+def problem(mval, nval, wordlist='planets'):
     """ Produce the class instance for the problem """
     if not all(isinstance(_, INTS) and _ > 0 for _ in [mval, nval]):
         raise ValueError(f"Inputs {mval} ({type(mval)}), {nval}({type(nval)})"
