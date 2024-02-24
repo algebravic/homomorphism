@@ -3,14 +3,17 @@
 \usepackage{amsmath}
 \usepackage{amsfonts}
 \usepackage{amssymb}
+\usepackage{amsthm}
 \usepackage{bibref}
 \usepackage{authblk}
+\usepackage{hyperref}
 \title{WORDBOX: A case study in SAT Encodings}
 \author{Victor S. Miller}
 \affil{IDA Center for Communications Research, Princeton, NJ 08540
 USA}
+\newtheorem{definition}{Definition}
 \begin{document}
-\maketitle{}
+\maketitle
 \begin{abstract}
   The great effectiveness of SAT solvers for large, difficult, SAT
   problems is a recent welcome development.  It is well know to
@@ -45,14 +48,104 @@ USA}
   knowledge and their effect on solving times for various SAT solvers.
 \end{abstract}
 
+\section{A recreational problem}
+\label{sec:recreational}
+
+In the GCHQ \emph{Kryptos Kristmas Kwiz} of 2006
+\url{https://theintercept.com/2015/12/25/gchq-play-a-british-spy-game/}
+\footnote{Solutions at \url{https://theintercept.com/2016/01/01/gchq-play-a-british-spy-game-the-solutions/}}
+describes a problem called ``wordbox'':
+\begin{quotation}
+  A wordbox is a rectangle of letters in which a series of words can
+  be read by starting at one letter and moving to an adjacent letter
+  in a row or column, but not diagonally. Retracing steps and reusing
+  letters is allowed.  Thus a wordbox might be
+  \begin{center}
+    \begin{tabular}[h]{|c|c|c|c|}
+      \hline
+       D & O & R & F \\
+      \hline
+       I & G & E & S \\
+      \hline
+       T & A & O & T \\
+      \hline
+    \end{tabular}
+  \end{center}
+  which contains {\tt DODO, DOG, FROG, STOAT TIGER} and {\tt TIT}, but
+doesn't contain {\tt GOAT} or {\tt GEESE}. This wordbox contains 12
+letter cells, so its area is 12.  What is the smallest (in area)
+wordbox that includes the planets: {\tt MERCURY, VENUS, EARTH, MARS,
+  JUPITER, URANUS, NEPTUNE, PLUTO}?
+\end{quotation}
+The answer given (without any proof of minimality) is:
+\begin{center}
+  \begin{tabular}[h]{|c|c|c|c|}
+    \hline
+    V & E & A & M \\
+    \hline
+    A & N & R & T \\
+    \hline
+    R & U & S & H \\
+    \hline
+    N & T & A & \quad \\
+    \hline
+    E & P & I & M \\
+    \hline
+    L & U & T & E \\
+    \hline
+    P & J & O & R \\
+    \hline
+    Y & R & U & C \\
+    \hline
+  \end{tabular}
+\end{center}
 \section{A logical statement}
 \label{sec:logical-statement}
 
-We may state the problem in logic as follows
+To solve the original recreational problem, we pose it as a problem of
+\emph{Labeled graph homomomorphism}:
+
+\begin{definition}[Graph Homomorphism]
+  Let $G, H$ be graphs.  A \emph{graph homomorphism} from $G$ to $H$
+  is a map $\phi : V(G) \rightarrow V(H)$ such that, for all $(v,w) \in
+  E(G)$, we have $(\phi(v), \phi(w)) \in E(H)$.
+\end{definition}
+\begin{definition}[Labeled Graph]
+  Let $G$ be a graph.  A \emph{labeling} of $G$ is a map $\ell: V(G)
+  \rightarrow C$, for some set $C$.
+\end{definition}
+\begin{definition}[Labeled homomorphism]
+  Let $G$ be a labeled graph, with a \emph{labeling} $\ell: V(G)
+  \rightarrow C$, and $H$
+  be a graph.  A \emph{labeled homomorphism} is a homomorphism $\phi:
+  V(G) \rightarrow V(H)$, and a labeling $\ell': V(H) \rightarrow C$,
+  such that $\ell'(\phi(v)) = \ell(v)$ for all $v \in V(G)$.
+\end{definition}
+
+For the original problem, the graph $G$ is a disjoint union of simple
+paths: for each word, of length $k$, there is a path $v_1, \dots,
+v_k$, where the edges are $(v_i, v_{i+1})$ for $i=1, \dots, k-1$, and
+$\ell(v_i)$ is the $i$-th letter in the word.  The graph $H$ is an $m
+\times n$ \emph{grid graph}: its vertices are pairs $(i,j), 0 \le i <
+m, 0 < j < n$, with $((i,j), (i',j'))$ an edge if and only if
+$|i-i'| + |j-j'| = 1$.
+
+We may state the problem as follows: We are given two
+undirected graphs $G, H$, and a \emph{labeling} $\ell : V(G)
+\rightarrow C$.  We want to know if there exists a graph homomorphism
+$f: V(G) \rightarrow V(H)$, and a labeling $\ell': V(H) \rightarrow C$
+such that $\ell'(f(v)) = \ell(v)$ for all $v \in V(G)$.
+
+
+For the original problem, the graph $G$ is a disjoint union of paths,
+$H$ is the \emph{grid graph}
 \begin{equation}
   \label{eq:1}
-  \exists f \forall v,v' \in V(G) ((v,v') \in E(G) \Rightarrow (f(v),
-  f(v')) \in E(H)) \wedge (\ell(v) \ne \ell(v') \Rightarrow f(v) \ne f(v')),
+  \begin{aligned}
+    \exists & f: V(G) \rightarrow V(H), \ell': V(H) \rightarrow C \\
+    \forall & (v,v') \in E(G), (f(v), f(v')) \in E(H) \\
+    \wedge \forall & v \in V(G), \ell'(f(v)) = \ell(v).
+  \end{aligned}
 \end{equation}
 where $f$ is a function.  However, in order to encode this is
 quantifier normal form we need to encode $f$ as a binary relation.
