@@ -2,8 +2,9 @@
 Given a labeled undirected graph G, and an undirected graph H create a SAT
 encoding of the labeled homomorphism problem from G --> H.
 """
-
-from itertools import product, combinations
+from typing import List, Tuple, Dict, Iterable, Hashable
+from math import ceil
+from itertools import product, combinations, chain
 from collections import Counter
 from threading import Timer
 from pysat.formula import CNF, CNFPlus, IDPool
@@ -12,6 +13,8 @@ from pysat.card import EncType, CardEnc
 import networkx as nx
 from networkx.algorithms import bipartite
 # from utility import export
+
+CLAUSE = List[int]
 
 def is_undirected(gph):
     """ Test for undirected graph """
@@ -28,15 +31,29 @@ def and_def(res, lita, litb):
 
     return [[-res, lita], [-res, litb], [res, -lita, -litb]]
 
-def parity_def(lita, litb, vpool):
+def parity_def(vpool: IDPool, lita: int, litb: int) -> Tuple[int, List[int]]:
     """
     res <==> vara != varb
     res + vara + varb = 0 -- parity
     Forbid (1,0,0), (0,1,0), (0,0,1), (1,1,1)
     """
-    vpool.top += 1
-    res = vpool.top
-    return res, [[-res, lita, litb], [res, -lita, litb], [res, lita, -litb], [-res, -lita, -litb]]
+    res = vpool.id()
+    return (res,
+            [[-res, lita, litb],
+             [res, -lita, litb],
+             [res, lita, -litb],
+             [-res, -lita, -litb]])
+def function_def(vpool: IDPool, fvars: Dict[Tuple[Hashable, Hashable], int],
+                 partial: bool = False) -> Iterable[CLAUSE]:
+    """ Define a function (possibly partial) """
+    counter = CardEnc.atmost if partial else CardEnc.equals
+    domain = set((_[0] for _ in fvars.keys()))
+    frange = set((_[1] for _ in fvars.keys()))
+    for elt in domain:
+        yield from counter(lits = [fvars[elt, _] for _ in frange],
+                           bound = 1,
+                           vpool = vpool,
+                           encoding = EncType.ladder)
 
 class LabeledHomomorphismModel:
     pass
@@ -108,21 +125,48 @@ class LabeledHomomorphism:
         self._gph_H = gph_H.copy()
         self._labels = dict( (_, gph_G.nodes[_]['label']) for _ in gph_G.nodes )
 
-    def model(self, coloring=True, bip=True, cardinality=EncType.seqcounter):
+    def model(self,
+              coloring: bool = True,
+              bip: bool = True,
+              lbounds: bool = True,
+              verbose: int = 0,
+              cardinality = EncType.seqcounter):
         """ Construct the SAT model """
         return LabeledHomomorphismModel(self,
-                                        bip=bip,
-                                        coloring=coloring,
-                                        cardinality=cardinality)
+                                        bip = bip,
+                                        coloring = coloring,
+                                        lbounds = lbounds,
+                                        verbose = verbose,
+                                        cardinality = cardinality)
 
 # @export
 class LabeledHomomorphismModel:
-    """ Solve the labeled homomorphism problem """
+    """
+      Solve the labeled homomorphism problem:
+
+      There are the following variables:
+      x[v,w] for v in V(G) and w in V(H) indicating that f(v) = w
+      This is a function if and only if
+      sum([x[v,w] for w in V(G)]) = 1 for all v.  That is every v in V(G)
+      is mapped to exactly one w in V(H).
+      z[w,c] for w in V(H) and c in C indicating that l(w) = c.  Again
+      sum([z[w,c] for c in C]]) <= 1 for all w. That is every w in V(H)
+      is mappend to at most one c in C (it is a partial function).
+      But we must have (OR [x[v,w] for v in w]) ==> sum(..) = 1.
+      That is, if w = f(v) for some v, then w gets a color.
+
+      We have (l(v) = c AND x[v,w]) ==> z[w,c]
+      i.e. (l(v) != c) OR ~x[v,w] OR z[w,c] for all v
+      or ~x[v,w] OR z[w,c] for all v such that l(v) = c and for all w
+      or ~x[v,w] OR z[w,l(v)] for all v in V(G), w in V(H)
+      """
 
     def __init__(self, parent,
-                 bip=True,
-                 coloring=True,
-                 cardinality=EncType.seqcounter):
+                 bip: bool = True,
+                 coloring: bool = True,
+                 lbounds: bool = True,
+                 verbose: int = 0,
+                 cardinality: int = EncType.seqcounter):
 
         if not isinstance(parent, LabeledHomomorphism):
             raise ValueError("Parent must be of class LabeledHomomorphism")
@@ -131,6 +175,7 @@ class LabeledHomomorphismModel:
         self._gph_G = parent._gph_G
         self._gph_H = parent._gph_H
         self._labels = parent._labels
+        self._verbose = verbose
         self._solveit = None
         self._proof = None
         self._mapping = None
@@ -142,17 +187,13 @@ class LabeledHomomorphismModel:
             ((vnode, wnode), self._pool.id(('x', (vnode, wnode))))
             for vnode, wnode in product(self._gph_G.nodes, self._gph_H.nodes)
         )
-        # f is a function
-        for vnode in self._gph_G.nodes:
-            self._cnf.extend(CardEnc.equals(
-                lits=[self._xvars[vnode, _] for _ in self._gph_H.nodes],
-                vpool=self._pool,
-                encoding=EncType.ladder,
-                bound=1))
+        self._cnf.extend(function_def(self._pool, self._xvars))
 
+        
         # Map edges to edges
-        # If (v,v') is an edge of G then (f(v), f(v')) is an edge of H
-        # <==> (v,v') in E(G): x[v,w] AND x[v,w'] ==> (w,w') in E(H)
+        # If (v,vp) is an edge of G then (f(v), f(vp)) is an edge of H
+        # Equivalently (v,vp) in E(G): x[v,w] AND x[vp,wp] ==> (w,wp) in E(H)
+        # Contrapositive: (w,wp) not in E(H) ==> ~x[v,w] OR ~x[vp,wp]
         # if (v,v') is an edge of G, and (w,w') is not an edge of H
         # then it is not true that f(v) = w and f(v') = w'
         for vnode, vnodep in self._gph_G.edges:
@@ -160,13 +201,16 @@ class LabeledHomomorphismModel:
                 if not self._gph_H.has_edge(wnode, wnodep):
                     self._cnf.append([-self._xvars[vnode, wnode], -self._xvars[vnodep, wnodep]])
 
+
         if bip:
             self.bipartite_clauses()
         self._bipartite = bip
 
         if coloring:
-            self.color_clauses(cardinality=cardinality)
             self._cardinality = cardinality
+            self.color_clauses()
+            if lbounds:
+                self.bound_clauses()
         else:
             self.non_color_clauses()
         self._coloring = coloring
@@ -211,53 +255,71 @@ class LabeledHomomorphismModel:
                 self._cnf.extend([ [bvar, -self._xvars[vnode, wnode]]
                                    for wnode in htop])
         
-    def color_clauses(self, cardinality=EncType.seqcounter):
+    def color_clauses(self):
         """ Add clauses from coloring the nodes of both graphs """
-        color_counts = Counter([self._labels[_] for _ in self._gph_G.nodes])
+
+        self._max_occurence = Counter(self._labels.values())
         self._zvars = dict(
             ((wnode, cnode), self._pool.id(('z', (wnode, cnode))))
-            for wnode, cnode in product(self._gph_H.nodes, color_counts.keys())
+            for wnode, cnode in product(self._gph_H.nodes, self._max_occurence.keys())
         )
-        # every node in H gets at most 1 color
-        for wnode in self._gph_H.nodes:
-            # I think that ladder is best for atmost 1
-            self._cnf.extend(
-                CardEnc.atmost(
-                    lits=[self._zvars[wnode, _] for _ in color_counts.keys()],
-                    vpool=self._pool,
-                    bound=1,
-                    encoding=EncType.ladder))
-
+        self._cnf.extend(function_def(self._pool, self._zvars, partial=True))
+        # Find label pairs that must occur
         # If v is colored by c, then f(v) is colored by c
-        self._cnf.extend([[-self._xvars[vnode, wnode],
-                           self._zvars[wnode, self._labels[vnode]]]
-                          for vnode, wnode in product(self._gph_G.nodes, self._gph_H.nodes)])
+        self._cnf.extend([[-self._xvars[vnode, wnode], # f(v) = w
+                           self._zvars[wnode, self._labels[vnode]]] # l(w) = l(v)
+                          for vnode, wnode in product(
+                              self._gph_G.nodes, self._gph_H.nodes)])
 
+    def bound_clauses(self):
+        
+        labeled_edges = set(
+            (frozenset((self._labels[_[0]], self._labels[_[1]]))
+                       for _ in self._gph_G.edges))
+        # if a letter occurs in Q pairs
+        # then it has to occur at least ceil(A/ max_deg(H)) times
+        edge_counts = {letter: len([_ for _ in labeled_edges if letter in _])
+            for letter in self._max_occurence.keys()}
+        if self._verbose > 0:
+            print(f"edge_counts = {edge_counts}")
+        # find the max degree of H
+        max_deg_H = max((deg for _, deg in self._gph_H.degree()))
+        # min occurence
+        self._min_occurence = {letter: ceil(deg / max_deg_H)
+            for letter, deg in edge_counts.items()}
+        if self._verbose > 0:
+            print(f"min_occurence = {self._min_occurence}")
         # The number of nodes in H colored by c is <= the number of such nodes in G
-        for color, count in color_counts.items():
+        for color, count in self._max_occurence.items():
             zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
+            self._cnf.extend(
+                CardEnc.atleast(lits=zlits,
+                                vpool=self._pool,
+                                bound = self._min_occurence[color],
+                                encoding = self._cardinality))
+            
             # Every color must appear at least once
-            self._cnf.append(zlits)
-            if cardinality != -1:
-                self._cnf.extend(
-                    CardEnc.atmost(lits=zlits,
-                                   vpool=self._pool,
-                                   bound=count,
-                                   encoding=cardinality))
+            self._cnf.extend(
+                CardEnc.atmost(lits=zlits,
+                               vpool=self._pool,
+                               bound=count,
+                               encoding=self._cardinality))
 
     def non_color_clauses(self):
         """ Generic clauses for labeled homomorphism """
         # For all W, there exists (v,v') such that y[v,v',w]
-        # if l(v) != l(v') then f(v) != f(v')
-        # f(v) != f(v') <==> exists w such that f(v) = w and f(v') != w
+        # for all v != vp, f(v) = f(vp) ==> l(v) = l(vp)
+        # Contrapositive:
+        # for all v != vp, l(v) != l(vp) ==> f(v) != f(vp)
+        # f(v) != f(vp) <==> exists w such that f(v) = w and f(vp) != w
         for vnode, vnodep in combinations(self._gph_G.nodes, 2):
             if self._labels[vnode] != self._labels[vnodep]:
                 wclause = []
                 for wnode in self._gph_H.nodes:
                     yvar, clauses = parity_def(
+                        self._pool,
                         self._xvars[vnode, wnode],
-                        self._xvars[vnodep, wnode],
-                        self._pool)
+                        self._xvars[vnodep, wnode])
                     self._cnf.extend(clauses)
                     wclause.append(yvar)
                 self._cnf.append(wclause)
