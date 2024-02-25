@@ -128,14 +128,16 @@ class LabeledHomomorphism:
     def model(self,
               coloring: bool = True,
               bip: bool = True,
-              lbounds: bool = True,
+              lbound: bool = True,
+              hbound: bool = True,
               verbose: int = 0,
               cardinality = EncType.seqcounter):
         """ Construct the SAT model """
         return LabeledHomomorphismModel(self,
                                         bip = bip,
                                         coloring = coloring,
-                                        lbounds = lbounds,
+                                        lbound = lbound,
+                                        hbound = hbound,
                                         verbose = verbose,
                                         cardinality = cardinality)
 
@@ -164,7 +166,8 @@ class LabeledHomomorphismModel:
     def __init__(self, parent,
                  bip: bool = True,
                  coloring: bool = True,
-                 lbounds: bool = True,
+                 lbound: bool = True,
+                 hbound: bool = True,
                  verbose: int = 0,
                  cardinality: int = EncType.seqcounter):
 
@@ -209,8 +212,8 @@ class LabeledHomomorphismModel:
         if coloring:
             self._cardinality = cardinality
             self.color_clauses()
-            if lbounds:
-                self.bound_clauses()
+            if lbound or hbound:
+                self.bound_clauses(lbound, hbound)
         else:
             self.non_color_clauses()
         self._coloring = coloring
@@ -271,7 +274,7 @@ class LabeledHomomorphismModel:
                           for vnode, wnode in product(
                               self._gph_G.nodes, self._gph_H.nodes)])
 
-    def bound_clauses(self):
+    def bound_clauses(self, lbound: bool, hbound: bool):
         
         labeled_edges = set(
             (frozenset((self._labels[_[0]], self._labels[_[1]]))
@@ -290,20 +293,23 @@ class LabeledHomomorphismModel:
         if self._verbose > 0:
             print(f"min_occurence = {self._min_occurence}")
         # The number of nodes in H colored by c is <= the number of such nodes in G
-        for color, count in self._max_occurence.items():
-            zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
-            self._cnf.extend(
-                CardEnc.atleast(lits=zlits,
-                                vpool=self._pool,
-                                bound = self._min_occurence[color],
-                                encoding = self._cardinality))
+        if lbound:
+            for color in self._min_occurence.keys():
+                zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
+                self._cnf.extend(
+                    CardEnc.atleast(lits=zlits,
+                                    vpool=self._pool,
+                                    bound = self._min_occurence[color],
+                                    encoding = self._cardinality))
             
-            # Every color must appear at least once
-            self._cnf.extend(
-                CardEnc.atmost(lits=zlits,
-                               vpool=self._pool,
-                               bound=count,
-                               encoding=self._cardinality))
+        if hbound:
+            for color in self._max_occurence.keys():
+                zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
+                self._cnf.extend(
+                    CardEnc.atmost(lits=zlits,
+                                    vpool=self._pool,
+                                    bound = self._max_occurence[color],
+                                    encoding = self._cardinality))
 
     def non_color_clauses(self):
         """ Generic clauses for labeled homomorphism """
