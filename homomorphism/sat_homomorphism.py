@@ -288,19 +288,21 @@ class LabeledHomomorphismModel:
         # find the max degree of H
         max_deg_H = max((deg for _, deg in self._gph_H.degree()))
         # min occurence
-        self._min_occurence = {letter: ceil(deg / max_deg_H)
-            for letter, deg in edge_counts.items()}
+        if lbound:
+            self._min_occurence = {letter: ceil(deg / max_deg_H)
+                for letter, deg in edge_counts.items()}
+        else:
+            self._min_occurence = {letter: 1 for letter in self._max_occurence.keys()}
         if self._verbose > 0:
             print(f"min_occurence = {self._min_occurence}")
         # The number of nodes in H colored by c is <= the number of such nodes in G
-        if lbound:
-            for color in self._min_occurence.keys():
-                zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
-                self._cnf.extend(
-                    CardEnc.atleast(lits=zlits,
-                                    vpool=self._pool,
-                                    bound = self._min_occurence[color],
-                                    encoding = self._cardinality))
+        for color in self._min_occurence.keys():
+            zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
+            self._cnf.extend(
+                CardEnc.atleast(lits=zlits,
+                                vpool=self._pool,
+                                bound = self._min_occurence[color],
+                                encoding = self._cardinality))
             
         if hbound:
             for color in self._max_occurence.keys():
