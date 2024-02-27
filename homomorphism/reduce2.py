@@ -5,12 +5,14 @@ import networkx as nx
 CLAUSE = List[int]
 FORMULA = List[CLAUSE]
 
-def unit_step(formula: FORMULA) -> Tuple[FORMULA, Set[int]]:
+def unit_step(formula: FORMULA, verbose: int = 0) -> Tuple[FORMULA, Set[int]]:
 
     units = set((_[0] for _ in formula if len(_) == 1))
     neg_units = set((-_ for _ in units))
     # Check for UNSAT
     if len(set(map(abs, units))) < len(units):
+        if verbose > 0:
+            print("UNSAT in unit_step")
         return [[]], units
     if len(units) == 0:
         return formula, set()
@@ -35,18 +37,22 @@ def unit_propagation(formula: FORMULA, verbose: int = 0) -> Tuple[FORMULA, Set[i
             return formula, units
         units.update(new_units)
             
-def reduction_step(formula: FORMULA) -> Tuple[FORMULA, Dict[int, int]]:
+def reduction_step(formula: FORMULA, verbose: int = 0) -> Tuple[FORMULA, Dict[int, int]]:
 
     """ Reduce a formula """
     gph = nx.DiGraph()
     for clause in (_ for _ in formula if len(_) == 2):
-        gph.add_edge(-_[0], _[1])
-        gph.add_edge(-_[1], _[0])
+        gph.add_edge(-clause[0], clause[1])
+        gph.add_edge(-clause[1], clause[0])
 
     rewrite = {}
     components = nx.strongly_connected_components(gph)
     is_reduction = False
+    comp_no = 0
     for bag in components:
+        comp_no += 1
+        if verbose > 0:
+            print(f"Component {comp_no}: # = {len(bag)}")
         # Find a representative
         # Test for UNSAT
         if len(set(map(abs, bag))) < len(bag): # UNSAT
@@ -84,7 +90,7 @@ def two_reduction(formula: FORMULA,
             print(f"# new units = {len(new_units)}")
         changed = changed or len(new_units) > 0
         units.update(new_units)
-        formula, rewritten = reduction_step(formula)
+        formula, rewritten = reduction_step(formula, verbose = verbose)
         if verbose > 0:
             print(f"# new rewrites = {len(rewritten)}")
         changed = changed or len(rewritten) > 0
