@@ -44,16 +44,17 @@ def parity_def(vpool: IDPool, lita: int, litb: int) -> Tuple[int, List[int]]:
              [res, lita, -litb],
              [-res, -lita, -litb]])
 def function_def(vpool: IDPool, fvars: Dict[Tuple[Hashable, Hashable], int],
-                 partial: bool = False) -> Iterable[CLAUSE]:
+                 partial: bool = False, pairwise: bool = False) -> Iterable[CLAUSE]:
     """ Define a function (possibly partial) """
     counter = CardEnc.atmost if partial else CardEnc.equals
     domain = set((_[0] for _ in fvars.keys()))
     frange = set((_[1] for _ in fvars.keys()))
+    encoding = EncType.pairwise if pairwise else EncType.ladder
     for elt in domain:
         yield from counter(lits = [fvars[elt, _] for _ in frange],
                            bound = 1,
                            vpool = vpool,
-                           encoding = EncType.ladder)
+                           encoding = encoding)
 
 class LabeledHomomorphismModel:
     pass
@@ -131,6 +132,7 @@ class LabeledHomomorphism:
               lbound: bool = True,
               hbound: bool = True,
               verbose: int = 0,
+              pairwise: bool = False,
               cardinality = EncType.seqcounter):
         """ Construct the SAT model """
         return LabeledHomomorphismModel(self,
@@ -139,6 +141,7 @@ class LabeledHomomorphism:
                                         lbound = lbound,
                                         hbound = hbound,
                                         verbose = verbose,
+                                        pairwise = pairwise,
                                         cardinality = cardinality)
 
 # @export
@@ -169,6 +172,7 @@ class LabeledHomomorphismModel:
                  lbound: bool = True,
                  hbound: bool = True,
                  verbose: int = 0,
+                 pairwise: bool = False,
                  cardinality: int = EncType.seqcounter):
 
         if not isinstance(parent, LabeledHomomorphism):
@@ -183,6 +187,7 @@ class LabeledHomomorphismModel:
         self._proof = None
         self._mapping = None
         self._status = False
+        self._pairwise = pairwise
 
         self._pool = IDPool() # the variable pool
         self._cnf = CNFPlus() # I don't know if this works
@@ -190,7 +195,7 @@ class LabeledHomomorphismModel:
             ((vnode, wnode), self._pool.id(('x', (vnode, wnode))))
             for vnode, wnode in product(self._gph_G.nodes, self._gph_H.nodes)
         )
-        self._cnf.extend(function_def(self._pool, self._xvars))
+        self._cnf.extend(function_def(self._pool, self._xvars, pairwise = self._pairwise))
 
         
         # Map edges to edges
@@ -200,10 +205,11 @@ class LabeledHomomorphismModel:
         # if (v,v') is an edge of G, and (w,w') is not an edge of H
         # then it is not true that f(v) = w and f(v') = w'
         for vnode, vnodep in self._gph_G.edges:
-            for wnode, wnodep in product(self._gph_H.nodes, repeat=2):
+            for wnode, wnodep in combinations(self._gph_H.nodes, 2):
                 if not self._gph_H.has_edge(wnode, wnodep):
-                    self._cnf.append([-self._xvars[vnode, wnode], -self._xvars[vnodep, wnodep]])
-
+                    self._cnf.extend([
+                        [-self._xvars[vnode, wnode], -self._xvars[vnodep, wnodep]],
+                        [-self._xvars[vnode, wnodep], -self._xvars[vnodep, wnode]]])
 
         if bip:
             self.bipartite_clauses()
@@ -266,7 +272,9 @@ class LabeledHomomorphismModel:
             ((wnode, cnode), self._pool.id(('z', (wnode, cnode))))
             for wnode, cnode in product(self._gph_H.nodes, self._max_occurence.keys())
         )
-        self._cnf.extend(function_def(self._pool, self._zvars, partial=True))
+        self._cnf.extend(function_def(self._pool, self._zvars,
+                                      pairwise = self._pairwise,
+                                      partial=True,))
         # Find label pairs that must occur
         # If v is colored by c, then f(v) is colored by c
         self._cnf.extend([[-self._xvars[vnode, wnode], # f(v) = w
@@ -291,18 +299,16 @@ class LabeledHomomorphismModel:
         if lbound:
             self._min_occurence = {letter: ceil(deg / max_deg_H)
                 for letter, deg in edge_counts.items()}
-        else:
-            self._min_occurence = {letter: 1 for letter in self._max_occurence.keys()}
-        if self._verbose > 0:
-            print(f"min_occurence = {self._min_occurence}")
-        # The number of nodes in H colored by c is <= the number of such nodes in G
-        for color in self._min_occurence.keys():
-            zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
-            self._cnf.extend(
-                CardEnc.atleast(lits=zlits,
-                                vpool=self._pool,
-                                bound = self._min_occurence[color],
-                                encoding = self._cardinality))
+            if self._verbose > 0:
+                print(f"min_occurence = {self._min_occurence}")
+            # The number of nodes in H colored by c is <= the number of such nodes in G
+            for color in self._min_occurence.keys():
+                zlits = [self._zvars[_, color] for _ in self._gph_H.nodes]
+                self._cnf.extend(
+                    CardEnc.atleast(lits=zlits,
+                                    vpool=self._pool,
+                                    bound = self._min_occurence[color],
+                                    encoding = self._cardinality))
             
         if hbound:
             for color in self._max_occurence.keys():
@@ -321,21 +327,25 @@ class LabeledHomomorphismModel:
         # for all v != vp, l(v) != l(vp) ==> f(v) != f(vp)
         # f(v) != f(vp) <==> exists w such that f(v) = w and f(vp) != w
         for vnode, vnodep in combinations(self._gph_G.nodes, 2):
-            if self._labels[vnode] != self._labels[vnodep]:
-                wclause = []
-                for wnode in self._gph_H.nodes:
-                    yvar, clauses = parity_def(
-                        self._pool,
-                        self._xvars[vnode, wnode],
-                        self._xvars[vnodep, wnode])
-                    self._cnf.extend(clauses)
-                    wclause.append(yvar)
-                self._cnf.append(wclause)
+            if (self._labels[vnode] != self._labels[vnodep]
+                and not self._gph_G.has_edge(vnode, vnodep)):
+                self._cnf.extend([[- self._xvars[vnode, _],
+                                  - self._xvars[vnodep, _]]
+                                  for _ in self._gph_H.nodes])
+                # wclause = []
+                # for wnode in self._gph_H.nodes:
+                #     yvar, clauses = parity_def(
+                #         self._pool,
+                #         self._xvars[vnode, wnode],
+                #         self._xvars[vnodep, wnode])
+                #     self._cnf.extend(clauses)
+                #     wclause.append(yvar)
+                # self._cnf.append(wclause)
 
     def solve(self, solver='cadical153',
-              use_timer=True,
-              with_proof=True,
-              time_limit=-1,
+              use_timer = True,
+              with_proof = False,
+              time_limit = -1,
               **kwds):
         """ Solve the constructed model """
 
@@ -374,7 +384,7 @@ class LabeledHomomorphismModel:
             self._mapping = dict([_[1] for _ in sat_model
                               if _ is not None and _[0] == 'x'])
 
-        elif not self._status:
+        elif not self._status and with_proof:
             # self._core = self._solveit.get_core()
             try:
                 self._proof = self._solveit.get_proof()
