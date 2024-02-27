@@ -42,7 +42,9 @@ USA}
   $f: V(G) \rightarrow V(H)$ such that if $(v,v') \in E(G)$ then
   $(f(v), f(v')) \in E(H)$ (this is a \emph{graph homomorphism}), and
   a labeling $\ell(w)$ of $w \in V(H)$ such that, for all $v \in V(G)$
-  we have $\ell(f(v)) = \ell(v)$.
+  we have $\ell(f(v)) = \ell(v)$.  In turn, we show that the labeled
+  graph homomorphism problem is a subset of the \emph{colored graph
+    homomorhphism problem}.
 
   We investigate a number of different encodings of the global
   knowledge and their effect on solving times for various SAT solvers.
@@ -147,7 +149,7 @@ $H$ is the \emph{grid graph}
     \wedge \forall & v \in V(G), \ell'(f(v)) = \ell(v).
   \end{aligned}
 \end{equation}
-where $f$ is a function.  However, in order to encode this is
+where $f$ is a function.  However, in order to encode this in
 quantifier normal form we need to encode $f$ as a binary relation.
 
 So $w=f(x)$ means
@@ -155,4 +157,33 @@ So $w=f(x)$ means
   \forall x \exists w R(x,w) \wedge \forall x,w,w' ((w = w') \vee
   \neg R(w,x) \vee \neg R(x,w')).
 \end{displaymath}
+
+\section{The colored homomorphism problem}
+\label{sec:colored}
+
+\begin{definition}[Edge Colored Graph]
+  An \emph{edge colored graph} is a finite undirected graph $G =
+  (V(G), E(G))$ a set, $C$ of colors and a map $\phi: E(G) \rightarrow
+  C$, which assigns a color to each edge.
+\end{definition}
+\begin{definition}[Edge Colored Homomorphism]
+Let $G$ and $H$ be two edge colored graphs with the same set of
+colors.  An \emph{edge colored homomorphism} is a homomorphism $f : G
+\rightarrow H$, such that, for all edges $e \in E(G)$, the color of
+the edge $f(e) \in E(H)$ is the same as that of $e$.
+\end{definition}
+
+We now reduce the vertex colored homomorphism problem to the 2-colored
+edge homomorphism problem.  Given a vertex colored graph $G$,
+construct the edge colored graph $G'$ with two colors, red and green.
+The edges of $G'$ will be a copy of the edges of $G$ colored green.
+For each $v \ne v' \in V(G)$ such that $\ell(v) \ne \ell(v')$, and
+$(v,v') \not \in E(G)$, we add an edge $(v,v')$ colored red.  For the
+target graph $H$, we construct a 2-colored graph $H'$, whose green
+edges are a copy of the edges of $H$, and whose red edges are
+$(v,v') \not \in H$, for $v \ne v'$.
+\begin{proposition}
+  There is a vertex colored homomorphism from $G$ to $H$ if and only
+  if there is an edged colored homomorphism from $G'$ to $H'$.
+\end{proposition}
 \end{document}
