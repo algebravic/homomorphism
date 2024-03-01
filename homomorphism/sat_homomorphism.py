@@ -2,7 +2,7 @@
 Given a labeled undirected graph G, and an undirected graph H create a SAT
 encoding of the labeled homomorphism problem from G --> H.
 """
-from typing import List, Tuple, Dict, Iterable, Hashable
+from typing import List, Tuple, Dict, Iterable, Hashable, Set
 from math import ceil
 from itertools import product, combinations, chain
 from collections import Counter
@@ -11,10 +11,11 @@ from pysat.formula import CNF, CNFPlus, IDPool
 from pysat.solvers import Solver
 from pysat.card import EncType, CardEnc
 import networkx as nx
-from networkx.algorithms import bipartite
+from networkx.algorithms import bipartite as bipartite_x
 # from utility import export
 
 CLAUSE = List[int]
+FUNCTION = Dict[Tuple[str, Hashable, Hashable], int]
 
 def is_undirected(gph):
     """ Test for undirected graph """
@@ -43,6 +44,25 @@ def parity_def(vpool: IDPool, lita: int, litb: int) -> Tuple[int, List[int]]:
              [res, -lita, litb],
              [res, lita, -litb],
              [-res, -lita, -litb]])
+
+def new_function_def(vpool: IDPool, stem: str,
+                     domain: Set[Hashable],
+                     frange: Set[Hashable],
+                     partial: bool = False,
+                     pairwise: bool = False) -> Tuple[FUNCTION, Iterable[CLAUSE]]:
+
+    counter = CardEnc.atmost if partial else CardEnc.equals
+    fvars = {key : vpool.id((stem, key))
+        for key in product(domain, frange)}
+    encoding = EncType.pairwise if pairwise else EncType.ladder
+    clauses = chain(*(counter(
+        lits = [fvars[elt, _] for _ in frange],
+        bound = 1,
+        vpool = vpool,
+        encoding = encoding).clauses for elt in domain))
+
+    return fvars, clauses
+
 def function_def(vpool: IDPool, fvars: Dict[Tuple[Hashable, Hashable], int],
                  partial: bool = False, pairwise: bool = False) -> Iterable[CLAUSE]:
     """ Define a function (possibly partial) """
@@ -127,8 +147,9 @@ class LabeledHomomorphism:
         self._labels = dict( (_, gph_G.nodes[_]['label']) for _ in gph_G.nodes )
 
     def model(self,
-              coloring: bool = True,
-              bip: bool = True,
+              color: bool = True,
+              non_color: bool = True,
+              bipartite: bool = True,
               lbound: bool = True,
               hbound: bool = True,
               verbose: int = 0,
@@ -136,8 +157,9 @@ class LabeledHomomorphism:
               cardinality = EncType.seqcounter):
         """ Construct the SAT model """
         return LabeledHomomorphismModel(self,
-                                        bip = bip,
-                                        coloring = coloring,
+                                        bipartite = bipartite,
+                                        color = color,
+                                        non_color = non_color,
                                         lbound = lbound,
                                         hbound = hbound,
                                         verbose = verbose,
@@ -167,8 +189,9 @@ class LabeledHomomorphismModel:
       """
 
     def __init__(self, parent,
-                 bip: bool = True,
-                 coloring: bool = True,
+                 bipartite: bool = True,
+                 color: bool = True,
+                 non_color: bool = False,
                  lbound: bool = True,
                  hbound: bool = True,
                  verbose: int = 0,
@@ -188,41 +211,35 @@ class LabeledHomomorphismModel:
         self._mapping = None
         self._status = False
         self._pairwise = pairwise
-
+        self._cardinality = cardinality
+ 
         self._pool = IDPool() # the variable pool
-        self._cnf = CNFPlus() # I don't know if this works
-        self._xvars = dict(
-            ((vnode, wnode), self._pool.id(('x', (vnode, wnode))))
-            for vnode, wnode in product(self._gph_G.nodes, self._gph_H.nodes)
-        )
-        self._cnf.extend(function_def(self._pool, self._xvars, pairwise = self._pairwise))
+        self._cnf = CNF()
+        self._xvars, xclauses = new_function_def(self._pool, 'x',
+            set(self._gph_G.nodes),
+            set(self._gph_H.nodes),
+            pairwise = self._pairwise)
+        self._cnf.extend(xclauses)
+                
+        # self._xvars = dict(
+        #     ((vnode, wnode), self._pool.id(('x', (vnode, wnode))))
+        #     for vnode, wnode in product(self._gph_G.nodes, self._gph_H.nodes)
+        # )
+        # self._cnf.extend(function_def(self._pool, self._xvars, pairwise = self._pairwise))
 
-        
-        # Map edges to edges
-        # If (v,vp) is an edge of G then (f(v), f(vp)) is an edge of H
-        # Equivalently (v,vp) in E(G): x[v,w] AND x[vp,wp] ==> (w,wp) in E(H)
-        # Contrapositive: (w,wp) not in E(H) ==> ~x[v,w] OR ~x[vp,wp]
-        # if (v,v') is an edge of G, and (w,w') is not an edge of H
-        # then it is not true that f(v) = w and f(v') = w'
-        for vnode, vnodep in self._gph_G.edges:
-            for wnode, wnodep in combinations(self._gph_H.nodes, 2):
-                if not self._gph_H.has_edge(wnode, wnodep):
-                    self._cnf.extend([
-                        [-self._xvars[vnode, wnode], -self._xvars[vnodep, wnodep]],
-                        [-self._xvars[vnode, wnodep], -self._xvars[vnodep, wnode]]])
+        self.homomorphism_clauses()
 
-        if bip:
+        if bipartite:
             self.bipartite_clauses()
-        self._bipartite = bip
 
-        if coloring:
-            self._cardinality = cardinality
+        if not (color or non_color):
+            raise ValueError("Must specify at least one of color/non color")
+        if color:
             self.color_clauses()
             if lbound or hbound:
                 self.bound_clauses(lbound, hbound)
-        else:
+        if non_color:
             self.non_color_clauses()
-        self._coloring = coloring
 
     def bipartite_clauses(self):
         """
@@ -234,11 +251,11 @@ class LabeledHomomorphismModel:
         # Find connected components of G and H, an then take the bipartite split of each
         subgraphg = [nx.subgraph(self._gph_G, _)
                      for _ in nx.connected_components(self._gph_G)]
-        splitsg = list(map(bipartite.sets, subgraphg))
+        splitsg = list(map(bipartite_x.sets, subgraphg))
         ncompg = len(splitsg)
         subgraphh = [nx.subgraph(self._gph_H, _)
                      for _ in nx.connected_components(self._gph_H)]
-        splitsh = list(map(bipartite.sets, subgraphh))
+        splitsh = list(map(bipartite_x.sets, subgraphh))
         ncomph = len(splitsh)
         # We have one boolean variable for each component
         self._bvars = dict( (_, self._pool.id(('c', _))) for _ in range(ncompg * ncompg) )
@@ -263,24 +280,43 @@ class LabeledHomomorphismModel:
                                    for wnode in hbot])
                 self._cnf.extend([ [bvar, -self._xvars[vnode, wnode]]
                                    for wnode in htop])
+
+    def homomorphism_clauses(self):
+        # Map edges to edges
+        # If (v,vp) is an edge of G then (f(v), f(vp)) is an edge of H
+        # Equivalently (v,vp) in E(G): x[v,w] AND x[vp,wp] ==> (w,wp) in E(H)
+        # Contrapositive: (w,wp) not in E(H) ==> ~x[v,w] OR ~x[vp,wp]
+        # if (v,v') is an edge of G, and (w,w') is not an edge of H
+        # then it is not true that f(v) = w and f(v') = w'
+        for vnode, vnodep in self._gph_G.edges:
+            for wnode, wnodep in product(self._gph_H.nodes, repeat=2):
+                if not self._gph_H.has_edge(wnode, wnodep):
+                    self._cnf.append(
+                        [-self._xvars[vnode, wnode], -self._xvars[vnodep, wnodep]])
         
     def color_clauses(self):
         """ Add clauses from coloring the nodes of both graphs """
 
         self._max_occurence = Counter(self._labels.values())
-        self._zvars = dict(
-            ((wnode, cnode), self._pool.id(('z', (wnode, cnode))))
-            for wnode, cnode in product(self._gph_H.nodes, self._max_occurence.keys())
-        )
-        self._cnf.extend(function_def(self._pool, self._zvars,
-                                      pairwise = self._pairwise,
-                                      partial=True,))
+        self._zvars, zclauses = new_function_def(self._pool, 'z',
+            set(self._gph_H.nodes),
+            set(self._labels.values()),
+            partial = True,
+            pairwise = self._pairwise)
+        self._cnf.extend(zclauses)
+        # self._zvars = dict(
+        #     ((wnode, cnode), self._pool.id(('z', (wnode, cnode))))
+        #     for wnode, cnode in product(self._gph_H.nodes, self._max_occurence.keys())
+        # )
+        # self._cnf.extend(function_def(self._pool, self._zvars,
+        #                               pairwise = self._pairwise,
+        #                               partial=True,))
         # Find label pairs that must occur
         # If v is colored by c, then f(v) is colored by c
-        self._cnf.extend([[-self._xvars[vnode, wnode], # f(v) = w
+
+        self._cnf.extend([[-xvar, # f(v) = w
                            self._zvars[wnode, self._labels[vnode]]] # l(w) = l(v)
-                          for vnode, wnode in product(
-                              self._gph_G.nodes, self._gph_H.nodes)])
+                          for (vnode, wnode), xvar in self._xvars.items()])
 
     def bound_clauses(self, lbound: bool, hbound: bool):
         
@@ -326,6 +362,9 @@ class LabeledHomomorphismModel:
         # Contrapositive:
         # for all v != vp, l(v) != l(vp) ==> f(v) != f(vp)
         # f(v) != f(vp) <==> exists w such that f(v) = w and f(vp) != w
+        # Two nodes with different labels cannot map to the same
+        # node.  We can exclude pairs that are connected by an edge
+        # since the homomorphism condition will exclude those too.
         for vnode, vnodep in combinations(self._gph_G.nodes, 2):
             if (self._labels[vnode] != self._labels[vnodep]
                 and not self._gph_G.has_edge(vnode, vnodep)):
