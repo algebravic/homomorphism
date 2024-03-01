@@ -4,14 +4,14 @@ encoding of the labeled homomorphism problem from G --> H.
 """
 from typing import List, Tuple, Dict, Iterable, Hashable, Set
 from math import ceil
-from itertools import product, combinations, chain
+from itertools import product, combinations, chain, islice
 from collections import Counter
-from threading import Timer
 from pysat.formula import CNF, CNFPlus, IDPool
 from pysat.solvers import Solver
 from pysat.card import EncType, CardEnc
 import networkx as nx
 from networkx.algorithms import bipartite as bipartite_x
+from .solve import solve_cnf
 # from utility import export
 
 CLAUSE = List[int]
@@ -208,10 +208,10 @@ class LabeledHomomorphismModel:
         self._verbose = verbose
         self._solveit = None
         self._proof = None
-        self._mapping = None
-        self._status = False
+        self._mappings = None
         self._pairwise = pairwise
         self._cardinality = cardinality
+        self._stats = None
  
         self._pool = IDPool() # the variable pool
         self._cnf = CNF()
@@ -385,76 +385,55 @@ class LabeledHomomorphismModel:
               use_timer = True,
               with_proof = False,
               time_limit = -1,
+              num_soln: int = 1,
               **kwds):
         """ Solve the constructed model """
 
         if not hasattr(self, '_cnf'):
             raise ValueError("Must call model first")
 
-        if isinstance(solver, str):
-            self._solveit = Solver(name=solver, bootstrap_with=self._cnf,
-                                   with_proof=with_proof,
-                                   use_timer=use_timer,
-                                   **kwds)
-            # Check that it's one of our solvers
-        else:
-            self._solveit = solver(bootstrap_with=self._cnf,
-                                   with_proof=with_proof,
-                                   use_timer=use_timer,
-                                   **kwds)
-        if time_limit > 0:
-            def interrupt(solve):
-                solve.interrupt()
-            my_time = Timer(time_limit, interrupt, [self._solveit])
-            my_time.start()
-            try:
-                self._status = self._solveit.solve_limited(expect_interrupt=True)
-                self._solveit.clear_interrupt()
-            except NotImplementedError:
-                my_time.cancel()
-                self._status = self._solveit.solve()
-        else:
-            self._status = self._solveit.solve()
-
-        if self._status:
-            # extract the mapping
-            sat_model = [self._pool.obj(_)
-                         for _ in self._solveit.get_model() if _ > 0]
-            self._mapping = dict([_[1] for _ in sat_model
-                              if _ is not None and _[0] == 'x'])
-
-        elif not self._status and with_proof:
-            # self._core = self._solveit.get_core()
-            try:
-                self._proof = self._solveit.get_proof()
-            except NotImplementedError:
-                print("solver cannot get unsat proof")
+        models, self._proof = solve_cnf(self._cnf,
+            solver = solver,
+            use_timer = use_timer,
+            with_proof = with_proof,
+            time_limit = time_limit,
+            **kwds)
+        self._mappings = []
+        self._stats = []
+        for stats, model in islice(models, num_soln):
+            self._stats.append(stats)
+            if model is None or model == []: # We timed out is UNSAT
+                return
+            sat_model = [self._pool.obj(_) for _ in model if _ > 0]
+            self._mappings.append(dict([_[1] for _ in sat_model
+                                        if _ is not None and _[0] == 'x']))
 
     def check(self):
         """ Check the results of solving against specification """
 
-        if not hasattr(self, '_mapping'):
+        if self._mappings is None:
             raise ValueError("You must run solve first to obtain a mapping")
 
-        target = {}
-        # first check to make sure that the coloring is compatible
+        for mapping in self._mappings:
+            target = {}
+            # first check to make sure that the coloring is compatible
 
-        conflicts = 0
-        for vnode, wnode in self._mapping.items():
-            lab = self._labels[vnode]
-            if wnode in target and target[wnode] != lab:
-                conflicts += 1
-            else:
-                target[wnode] = lab
+            conflicts = 0
+            for vnode, wnode in mapping.items():
+                lab = self._labels[vnode]
+                if wnode in target and target[wnode] != lab:
+                    conflicts += 1
+                else:
+                    target[wnode] = lab
 
-        # Now check the homomorphism property
+            # Now check the homomorphism property
 
-        for vnode, vnodep in self._gph_G.edges:
-            target_edge = (self._mapping[vnode], self._mapping[vnodep])
-            if not self._gph_H.has_edge(*target_edge):
-                conflicts += 1
+            for vnode, vnodep in self._gph_G.edges:
+                target_edge = (mapping[vnode], mapping[vnodep])
+                if not self._gph_H.has_edge(*target_edge):
+                    conflicts += 1
 
-        return target, conflicts
+            yield target, conflicts
 
     def to_cnf(self, name):
         """
@@ -473,6 +452,7 @@ class LabeledHomomorphismModel:
     @property
     def solve_time(self):
         """ Total solution time """
-        if self._solveit is None:
+        if self._stats is None:
             raise ValueError("Model has not been solved!")
-        return self._solveit.time()
+        # Total up the time
+        return sum((_['time'] for _ in self._stats))
