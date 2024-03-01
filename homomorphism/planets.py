@@ -11,7 +11,14 @@ LISTS = {'planets': ['mercury', 'venus', 'earth', 'mars', 'jupiter',
                      'saturn', 'uranus', 'neptune', 'pluto'],
          'months': ['january', 'february', 'march', 'april',
                     'may', 'june', 'july', 'august', 'september',
-                    'october', 'november', 'december']
+                    'october', 'november', 'december'],
+         'dwarfs' : ['bashful', 'grumpy', 'sleepy', 'sneezy',
+                     'dopey', 'happy', 'doc'],
+         'greek': ['ALPHA', 'BETA', 'GAMMA', 'DELTA',
+                   'EPSILON', 'ZETA', 'ETA', 'THETA',
+                   'IOTA', 'KAPPA', 'LAMBDA', 'MU', 'NU',
+                   'OMICRON', 'XI', 'PI', 'RHO', 'SIGMA',
+                   'TAU', 'UPSILON', 'PHI', 'CHI', 'PSI', 'OMEGA']
          }
 
 INTS = (int, np.int8, np.int16, np.int32, np.int64)
