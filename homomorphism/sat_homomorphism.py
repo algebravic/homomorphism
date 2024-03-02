@@ -5,6 +5,7 @@ encoding of the labeled homomorphism problem from G --> H.
 from typing import List, Tuple, Dict, Iterable, Hashable, Set
 from math import ceil
 from itertools import product, combinations, chain, islice
+from more_itertools import bucket
 from collections import Counter
 from pysat.formula import CNF, CNFPlus, IDPool
 from pysat.solvers import Solver
@@ -415,23 +416,18 @@ class LabeledHomomorphismModel:
             raise ValueError("You must run solve first to obtain a mapping")
 
         for mapping in self._mappings:
-            target = {}
             # first check to make sure that the coloring is compatible
-
-            conflicts = 0
-            for vnode, wnode in mapping.items():
-                lab = self._labels[vnode]
-                if wnode in target and target[wnode] != lab:
-                    conflicts += 1
-                else:
-                    target[wnode] = lab
+            buckets = bucket(((coord, self._labels[coord[0]])
+                for coord in mapping.items()), key=lambda _: _[0])
+            target = {coord[1] : [_[1] for _ in buckets[coord]] for coord in buckets}
+            conflicts = sum(((_ * (_ - 1)) // 2 for _ in map(len, target.values())))
+            # take the first (and, one hopes, the only value)
+            target = {key: val[0] for key, val in target.items()}
 
             # Now check the homomorphism property
-
-            for vnode, vnodep in self._gph_G.edges:
-                target_edge = (mapping[vnode], mapping[vnodep])
-                if not self._gph_H.has_edge(*target_edge):
-                    conflicts += 1
+            conflicts += sum((not self._gph_H.has_edge(
+                mapping[vnode], mapping[vnodep])
+                for vnode, vnodep in self._gph_G.edges))
 
             yield target, conflicts
 
