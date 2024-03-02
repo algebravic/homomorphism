@@ -17,6 +17,7 @@ from .solve import solve_cnf
 
 CLAUSE = List[int]
 FUNCTION = Dict[Tuple[str, Hashable, Hashable], int]
+PLACEMENT = Dict[Tuple[int, int], str]
 
 def is_undirected(gph):
     """ Test for undirected graph """
@@ -45,6 +46,11 @@ def parity_def(vpool: IDPool, lita: int, litb: int) -> Tuple[int, List[int]]:
              [res, -lita, litb],
              [res, lita, -litb],
              [-res, -lita, -litb]])
+
+def compatible(arg1: PLACEMENT, arg2: PLACEMENT) -> bool:
+    """ Check compatibility of two assignments of letters to squares """
+    common = set(arg1.keys()).intersection(arg2.keys())
+    return all((arg1[_] == arg2[_] for _ in common))
 
 def new_function_def(vpool: IDPool, stem: str,
                      domain: Set[Hashable],
@@ -213,6 +219,8 @@ class LabeledHomomorphismModel:
         self._pairwise = pairwise
         self._cardinality = cardinality
         self._stats = None
+        self._placements = None
+        self._errors = None
  
         self._pool = IDPool() # the variable pool
         self._cnf = CNF()
@@ -415,21 +423,25 @@ class LabeledHomomorphismModel:
         if self._mappings is None:
             raise ValueError("You must run solve first to obtain a mapping")
 
+        self._errors = []
+        self._placements = []
+
         for mapping in self._mappings:
             # first check to make sure that the coloring is compatible
             buckets = bucket(((coord, self._labels[coord[0]])
                 for coord in mapping.items()), key=lambda _: _[0])
-            target = {coord[1] : [_[1] for _ in buckets[coord]] for coord in buckets}
+            target = {coord[1] : set([_[1] for _ in buckets[coord]])
+                for coord in buckets}
             conflicts = sum(((_ * (_ - 1)) // 2 for _ in map(len, target.values())))
             # take the first (and, one hopes, the only value)
-            target = {key: val[0] for key, val in target.items()}
+            target = {key: list(val)[0] for key, val in target.items()}
 
             # Now check the homomorphism property
             conflicts += sum((not self._gph_H.has_edge(
                 mapping[vnode], mapping[vnodep])
                 for vnode, vnodep in self._gph_G.edges))
-
-            yield target, conflicts
+            self._placements.append(target)
+            self._errors.append(conflicts)
 
     def to_cnf(self, name):
         """
