@@ -51,15 +51,19 @@ def big_union(lst : List[nx.Graph]) -> nx.Graph:
     else:
         raise ValueError("Input is empty!")
 
-# @export
-def words(ident: str) -> nx.Graph:
-    """ The Graph induced by the word list """
+def check_wordlist(ident: str) -> List[str]:
     if ident not in LISTS:
         raise ValueError(f"Input not in {tuple(LISTS.keys())}")
     else:
         lst = LISTS[ident]
     if not isinstance(lst, (tuple, list, set, frozenset)):
         raise ValueError("Input must be a collection of strings")
+    return lst
+    
+# @export
+def words(ident: str) -> nx.Graph:
+    """ The Graph induced by the word list """
+    lst = check_wordlist(ident)
     res = big_union(list(map(word_graph, lst)))
     res.name = ident
     return res
@@ -79,11 +83,19 @@ def grid_graph(mval, nval) -> nx.Graph:
             gph.add_edge((xval, yval), (xval, yval + 1))
     return gph
 
-# @export
-def problem(mval, nval, wordlist='planets'):
-    """ Produce the class instance for the problem """
+def check_dimensions(mval: int, nval: int):
     if not all(isinstance(_, INTS) and _ > 0 for _ in [mval, nval]):
         raise ValueError(f"Inputs {mval} ({type(mval)}), {nval}({type(nval)})"
                          + " must be positive integers")
 
+# @export
+def problem(mval: int, nval: int, wordlist: str = 'planets') -> LabeledHomomorphism:
+    """ Produce the class instance for the problem """
+    check_dimensions(mval, nval)
     return LabeledHomomorphism(words(wordlist), grid_graph(mval, nval))
+
+def individual(mval: int, nval: int, wordlist: str = 'planets') -> List[LabeledHomomorphism]:
+    lst = check_wordlist(wordlist)
+    check_dimensions(mval, nval)
+    grid = grid_graph(mval, nval)
+    return [LabeledHomomorphism(word_graph(word), grid) for word in lst]
