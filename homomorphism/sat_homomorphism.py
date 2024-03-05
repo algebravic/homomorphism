@@ -161,6 +161,7 @@ class LabeledHomomorphism:
               hbound: bool = True,
               verbose: int = 0,
               pairwise: bool = False,
+              direct: bool = False,
               cardinality = EncType.seqcounter):
         """ Construct the SAT model """
         return LabeledHomomorphismModel(self,
@@ -171,6 +172,7 @@ class LabeledHomomorphism:
                                         hbound = hbound,
                                         verbose = verbose,
                                         pairwise = pairwise,
+                                        direct = direct,
                                         cardinality = cardinality)
 
 # @export
@@ -203,6 +205,7 @@ class LabeledHomomorphismModel:
                  hbound: bool = True,
                  verbose: int = 0,
                  pairwise: bool = False,
+                 direct: bool = False,
                  cardinality: int = EncType.seqcounter):
 
         if not isinstance(parent, LabeledHomomorphism):
@@ -230,7 +233,7 @@ class LabeledHomomorphismModel:
             pairwise = self._pairwise)
         self._cnf.extend(xclauses)
 
-        self._red_edges = [edge for edge in combination(self._gph_G.nodes,2)
+        self._red_edges = [edge for edge in combinations(self._gph_G.nodes,2)
             if not self._gph_G.has_edge(*edge)
             and self._labels[edge[0]] != self._labels[edge[1]]]
             
@@ -240,8 +243,10 @@ class LabeledHomomorphismModel:
         #     for vnode, wnode in product(self._gph_G.nodes, self._gph_H.nodes)
         # )
         # self._cnf.extend(function_def(self._pool, self._xvars, pairwise = self._pairwise))
-
-        self.homomorphism_clauses()
+        if direct:
+            self.homomorphism_clauses_direct()
+        else:
+            self.homomorphism_clauses()
 
         if bipartite:
             self.bipartite_clauses()
@@ -307,7 +312,26 @@ class LabeledHomomorphismModel:
                 if not self._gph_H.has_edge(wnode, wnodep):
                     self._cnf.append(
                         [-self._xvars[vnode, wnode], -self._xvars[vnodep, wnodep]])
-        
+
+    def homomorphism_clauses_direct(self):
+        # Map edges to edges
+        # Let v be in V(G), and v maps to w in V(H). If vp is a neighbor of v,
+        # then vp must map to a neighbor of w
+
+        for vnode in self._gph_G.nodes:
+            for wnode in self._gph_H.nodes: # vnode --> wnode
+                antecedent = [-self._xvars[vnode, wnode]]
+                for vnodep in self._gph_G.neighbors(vnode):
+                    # if vnode --> wnode then a neighbor of vnode must be mapped
+                    # to a neighbor of wnode
+                    self._cnf.extend([antecedent + clause
+                                      for clause in CardEnc.equals(
+                                          lits = [self._xvars[vnodep, _]
+                                              for _ in self._gph_H.neighbors(wnode)],
+                                          vpool = self._pool,
+                                          bound = 1,
+                                          encoding = EncType.ladder)])
+
     def color_clauses(self):
         """ Add clauses from coloring the nodes of both graphs """
 
