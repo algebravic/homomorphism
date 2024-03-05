@@ -229,6 +229,11 @@ class LabeledHomomorphismModel:
             set(self._gph_H.nodes),
             pairwise = self._pairwise)
         self._cnf.extend(xclauses)
+
+        self._red_edges = [edge for edge in combination(self._gph_G.nodes,2)
+            if not self._gph_G.has_edge(*edge)
+            and self._labels[edge[0]] != self._labels[edge[1]]]
+            
                 
         # self._xvars = dict(
         #     ((vnode, wnode), self._pool.id(('x', (vnode, wnode))))
@@ -374,12 +379,10 @@ class LabeledHomomorphismModel:
         # Two nodes with different labels cannot map to the same
         # node.  We can exclude pairs that are connected by an edge
         # since the homomorphism condition will exclude those too.
-        for vnode, vnodep in combinations(self._gph_G.nodes, 2):
-            if (self._labels[vnode] != self._labels[vnodep]
-                and not self._gph_G.has_edge(vnode, vnodep)):
-                self._cnf.extend([[- self._xvars[vnode, _],
-                                  - self._xvars[vnodep, _]]
-                                  for _ in self._gph_H.nodes])
+        for vnode, vnodep in self._red_edges:
+            self._cnf.extend([[- self._xvars[vnode, _],
+                               - self._xvars[vnodep, _]]
+                              for _ in self._gph_H.nodes])
                 # wclause = []
                 # for wnode in self._gph_H.nodes:
                 #     yvar, clauses = parity_def(
@@ -389,6 +392,33 @@ class LabeledHomomorphismModel:
                 #     self._cnf.extend(clauses)
                 #     wclause.append(yvar)
                 # self._cnf.append(wclause)
+
+    def edge_clauses(self):
+        self._edge_function, clauses = new_function_def(self._pool,
+            map(frozenset, chain(self._gph_G.edges, self._red_edges)),
+            map(frozenset, combinations(self._gph_H.nodes, 2)),
+            pairwise = self._pairwise)
+
+        self._cnf.extend(clauses)
+        # Map like colors to like colors
+        self._cnf.extend([-self._edge_function[frozenset(g_edge), frozenset(h_edge)]]
+                         for g_edge in self._gph_G.edges
+                         for h_edge in combinations(self._gph_H.vertices, 2)
+                         if not self._gph_H.has_edge(h_edge))
+        
+        self._cnf.extend([-self._edge_function[frozenset(g_edge), frozenset(h_edge)]]
+                         for g_edge in self._red_edges
+                         for h_edge in self._gph_H.edges)
+        # Now for the M^G X = Y M^H
+        for wnode in self._gph_H.nodes:
+            for edge in chain(self._gph_G.edges, self._red_edges):
+                lhs = [- self._xvars[edge[0], wnode], - self._xvars[edge[1], wnode]]
+                rhs = [self._edge_function[frozenset([_, wnode]), frozenset(edge)]
+                    for _ in self._gph_H.nodes if _ != wnode]
+                self._cnf.extend(CardEnc.equals(lits = lhs + rhs,
+                                                bound = 2,
+                                                vpool = self._pool,
+                                                encoding = self._cardinality))
 
     def solve(self, solver='cadical153',
               use_timer = True,
