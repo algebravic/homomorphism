@@ -229,7 +229,6 @@ $Y_{f,e} = 1$ if $e$ maps to $f$ and 0 otherwise.
 \end{proposition}
 \begin{proof}
   Note that
-\end{proof}
 \begin{equation}
 \label{eq:vertex:map}
 (X M^G)_{w,e} = \sum_{v \in V(G)} X_{w,v} M^G_{v,e} = \sum_{v \in e}
@@ -241,38 +240,30 @@ and
   (M^H Y)_{w, e} = \sum_{f \in E(H)} M^H_{w,f} Y_{f,e} = \sum_{f \in
     E(H), w \in f} Y_{f,e}.
 \end{equation}
+
 We can interpret equation~\eqref{eq:vertex:map} as saying that $(X
-M^G)_{w,e}$ is the number of endpoints of edge $e$ that map to
-$w$, which is 0, 1 or 2.  We can also interpret
+M^G)_{w,e}$ is the number of vertices incident to $e$ that are mapped
+to $w$.
+
+We can also interpret
 equation~\eqref{eq:edge:map} as saying that $(M^H Y)_{w,e}$ is
-the number of endpoints of $e$ that map to $w$.  However, this
-quantity is 0 or 1, since the graphs are simple.  Thus, if the two
-sides are equal there is a homomorphism.  The converse is clear.
+the number of edges of $H$ incident to $w$ that are images of $e$.
+Note that the latter quantity is 0 or 1, since $Y$ represents a map.
+If the two quantities are equal this implies that at most one vertex
+incident to an edge of $G$ can map to the same vertex of $H$.  If $v,
+v'$ are the two endpoints of an edge $e \in E(H)$, let their images
+implied by $X$ be $w, w'$ respectively.  This implies that
+$\sum_{f \in E(H), w \in f} Y_{f,e} = 1$ and
+$\sum_{f' \in E(H), w' \in f'} Y_{f',e} = 1$.
+Since $Y$ represents a map ($\sum_{f \in E(H)} Y_{f,e} = 1$), this
+means that $w$ and $w'$ are incident to the \emph{same} edge, the
+image of $e$.  Since they are distinct, they must be the two endpoints
+of $e$.  Thus $X, Y$ represent a homomorphism.  The converse is clear.
+\end{proof}
 
-We can express homomorphism in terms of these matrices:
-$X M^G = M^H Y$.  Note that
-where $w \in V(H)$, and
-
-The first equation encodes mapping on vertices $v \rightarrow w$, and
-the second encodes mapping on edges $e \rightarrow f$.  If we require
-that the $X$ and $Y$ are left stochastic (row sum = 1, nonnegative
-entries), this is a relaxation.
-
-More specifically, we would like $X$ to have the property that
-$X_{w,v} = 1$ if $v$ maps to $w$ and 0 otherwise.  In addition, we
-would like $Y_{f,e} = 1$ if $e$ maps to $f$ and 0 otherwise.
-
-If this is the case then $(X M^G)_{w,e}$ is the number of vertices of
-$G$ incident to $e$ that map to $w$, which is the number of endpoints
-of $e$ that map to $w$.  Notice that for a simple graph this is 0, 1
-or 2.  However, as we shall see in the next paragraph.  The entry on
-the right hand side must be 0 or 1.
-
-We also have $(M^H Y)_{w,e}$ is 1 if $e$ maps to an edge incident to
-$w$ and 0 otherwise.  Thus, the two sides are equal if and only if
-there is a homomorphism from $G$ to $H$.  If the edges of $G$ and $H$
-are colored, and we require that colors map to like colors, we can
-enforce this by restricting elements of the matrix $Y$.
+If the edges of $G$ and $H$ are colored, and we require that colors
+map to like colors, we can enforce this by restricting elements of the
+matrix $Y$.  That is $Y_{f,e} = 0$ if $f$ and $e$ have distinct colors.
 
 We have an LP (linear programming) relaxation by requiring that the
 matrices be left stochastic.  That is $1 \ge Y_{f,e} \ge 0$ and
